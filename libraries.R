@@ -1,6 +1,6 @@
 library(readxl)
 library(rbioapi)
-library(Hmisc) # rcorr
+library(Hmisc)
 library(igraph)
 library(stringr)
 library(matrixStats)

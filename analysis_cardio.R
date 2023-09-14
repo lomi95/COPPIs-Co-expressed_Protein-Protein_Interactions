@@ -1,5 +1,4 @@
 source("loading_function.R")
-set.seed(123)
 
 
 Cardio <- as.data.frame(read_excel("Files/DataMatrixCmyo_2.xlsx"))

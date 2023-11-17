@@ -3,11 +3,7 @@ filter_score_or <- function(interactome,
                             score_values){
   
   if (length(score_types)!=length(score_values)){
-    print("length of score_types")
-    print(length(score_types))
-    print("------------")
-    print("length of score_values")
-    print(length(score_values))
+    message("Error: length of score_types different from length of score_values")
   }
   
   conditions <- vector()

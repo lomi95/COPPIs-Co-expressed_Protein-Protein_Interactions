@@ -1,25 +1,29 @@
-all_analysis <- function(dataset, # input: matrix (colnames = groups, rows = proteins)
+all_analysis <- function(dataset,
                          name_genes,
                          tax_ID,
                          names_of_groups = NULL,
-                         pos.vectors_groups = NULL, #list
+                         pos.vectors_groups = NULL,
                          ignore_case = T,
                          just_significant_cor = F,
                          interactome.01 = NULL,
-                         score_interactome_threshold = 0,
                          score_interactome_type = c("escore","dscore"),
-                         score_interactome_type_threshold = c(0,0), # vector score for type
+                         score_interactome_type_threshold = c(0.15,0.3),
                          cor_groups = NULL,
+                         Rcorr = NULL,
+                         threshold.n.corr = NULL,
+                         flatten.corr = NULL,
                          compute_weights = T,
                          cor.test = "spearman",
                          significance = 0.05,
                          p.adj = "BH",
                          sig.all = NULL,
                          split_categories = T,
-                         categories = c("KEGG","Process","RCTM","WikiPathways"),
-                         min_edge = 1, # numero di interazioni minime per essere considerato un pathway
+                         categories = c("Component","KEGG","Process","RCTM","WikiPathways"),
+                         min_edge = 1,
                          max_edge = Inf,
-                         filter_percentage = 0
+                         filter_percentage = 0.1,
+                         thr_degree = 0.75,
+                         thr_corr = NULL
 ){
   # Parameter Control:
   #   The code starts by performing various checks on the input parameters 
@@ -27,7 +31,11 @@ all_analysis <- function(dataset, # input: matrix (colnames = groups, rows = pro
   #   the provided correlation test type is either "spearman" or "pearson," 
   #   whether the p.adj method is valid, whether the specified categories 
   #   are valid, and more.
-  
+  if (!is.null(pos.vectors_groups)){
+    old.pos <- lapply(pos.vectors_groups,function(x){
+      colnames(dataset)[x]
+    })
+  }
   if (length(as.vector(name_genes))==1){
     if (is.character(name_genes)){
       name_genes <- match.arg(name_genes,colnames(dataset))
@@ -56,7 +64,7 @@ all_analysis <- function(dataset, # input: matrix (colnames = groups, rows = pro
   if (length(setdiff(genes.1,map_genes$queryItem))){
     message(str_c(setdiff(genes.1,map_genes$queryItem), collapse = " "), " were not found and dropped\n") 
   }
-
+  
   
   
   dataset <- t(dataset[match(map_genes$queryItem,genes.1),])
@@ -67,7 +75,9 @@ all_analysis <- function(dataset, # input: matrix (colnames = groups, rows = pro
   cor.test_available <- c("spearman","pearson")
   cor.test <- match.arg(cor.test, cor.test_available)
   
-  p.adj <- match.arg(p.adj,p.adjust.methods)
+  if (!is.null(p.adj)){
+    p.adj <- match.arg(p.adj,p.adjust.methods)
+  }
   
   
   categories_available <- c("all","COMPARTMENTS","Component","DISEASES","Function",
@@ -107,8 +117,8 @@ all_analysis <- function(dataset, # input: matrix (colnames = groups, rows = pro
       names_of_groups <- names(pos.vectors_groups)
       names(names_of_groups) <- names_of_groups
     }
-    list_groups <- lapply(pos.vectors_groups,function(x){
-      dataset[x,]
+    list_groups <- lapply(old.pos,function(x){
+      dataset[match(x,colnames(dataset)),]
     })
     names(list_groups) <- names_of_groups
   }
@@ -132,7 +142,7 @@ all_analysis <- function(dataset, # input: matrix (colnames = groups, rows = pro
   if (is.null(interactome.01)){
     interactome.01 <- rba_string_interactions_network(genes,
                                                       species = tax_ID,
-                                                      required_score = score_interactome_threshold)
+                                                      required_score = 0)
   }
   
   # filtrare l'interattoma prendendo solo interazioni con score di esperimento e database
@@ -174,7 +184,9 @@ all_analysis <- function(dataset, # input: matrix (colnames = groups, rows = pro
                           test_type = cor.test,
                           significance = significance,
                           p.adj = p.adj,
-                          compute_weights = compute_weights)
+                          compute_weights = compute_weights,
+                          Rcorr = Rcorr, threshold.n.corr = threshold.n.corr,
+                          flatten = flatten.corr)
     time_employed <- format_time_difference(difftime(Sys.time(),start_time,units = "s"))
     message(str_c("Correlation computed in", time_employed,sep = " "))
   } 
@@ -183,6 +195,7 @@ all_analysis <- function(dataset, # input: matrix (colnames = groups, rows = pro
   #   correlations (sig.all). The pathways are filtered based on the number 
   #   of edges (filter_edge) and percentage (filter_percentage).
   sd_groups <- sapply(cor_groups$cor_cond,function(x) sd(abs(x$ALL$weights)))
+  g.interactome <- graph_from_edgelist(as.matrix(interactome[,3:4]),directed = F)
   
   if (is.null(sig.all)){
     start_time <- Sys.time() 
@@ -191,7 +204,7 @@ all_analysis <- function(dataset, # input: matrix (colnames = groups, rows = pro
                       cor_groups1 = cor_groups$cor_cond,
                       sd_groups = sd_groups,
                       graph_cor.groups = cor_groups$cor_graphs, 
-                      interac = interactome,
+                      g.interac = g.interactome,
                       p.adj = p.adj,
                       significance = significance,
                       min_edge = min_edge, 
@@ -232,9 +245,19 @@ all_analysis <- function(dataset, # input: matrix (colnames = groups, rows = pro
   message(str_c("Pathways-pathways graphs created in", time_employed,sep = " "))
   
   
+  ## centrality measures
+  Centralities <- Compute_centralities(cor_groups,
+                                       g.interactome,
+                                       names_of_groups,
+                                       thr_degree,
+                                       thr_corr,
+                                       ignore_case)
+  
+  
   return(list(SIG.all = sig.all,
               cor.all = cor_groups,
               gpp.all = gpp.all,
               Enrichment  = prot_enr,
-              Interactome = interactome))
+              Interactome = interactome,
+              Centralities = Centralities))
 }

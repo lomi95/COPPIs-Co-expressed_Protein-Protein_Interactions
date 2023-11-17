@@ -4,7 +4,7 @@ pipe_for_term <- function(enr_sample,
                           graph_cor.groups,
                           significance,
                           p.adj,
-                          interac,
+                          g.interac,
                           min_edge,
                           max_edge,
                           filter_percentage,
@@ -29,7 +29,7 @@ pipe_for_term <- function(enr_sample,
   rownames(tab_pathways_protein) <- tab_pathways_protein$Group.1
   tab_pathways_protein <- as.matrix(tab_pathways_protein[,-1])
   #creating path-path network
-  g.interac <- graph_from_edgelist(as.matrix(interac[,3:4]),directed = F)
+  
   
   
   ## intersezione dell'interattoma con le interazioni INTRA-pathway
@@ -118,9 +118,9 @@ pipe_for_term <- function(enr_sample,
     tab_meancor.sig <- tab_meancor
     
     if (!is.null(dim(tab_meancor.sig))){
-      for (i in 1:length(N_edges_sign)){
-        tab_meancor.sig[names(which(N_edges_sign[[i]]==0)),i+1] <- 0
-      }
+      # for (i in 1:length(N_edges_sign)){
+      #   tab_meancor.sig[names(which(N_edges_sign[[i]]==0)),i+1] <- 0
+      # }
       ## filter by edges e tolgo i path non significativi in tutti i gruppi
       if (sum(rowSums(tab_meancor.sig[,2:ncol(tab_meancor.sig)])==0)){
         tab_meancor.sig.1 <- tab_meancor.sig[-which(rowSums(tab_meancor.sig[,2:ncol(tab_meancor.sig)])==0),]
@@ -139,20 +139,24 @@ pipe_for_term <- function(enr_sample,
           ind.max <- "no_max"
         }
         if (length(intersect(ind.min,ind.max))){
+          # fe: fiter edge
           tab_meancor.fe <- tab_meancor.sig.1[intersect(ind.min,ind.max),]
-          
-          
-          # funzione che prende i significativi e assegna lo score
-          
         }
-        
+        # funzione che prende i significativi e assegna lo score
         sig_path <- list()
-        
         n <-1
         for (i in 1:length(cor_groups1)){
           for (j in 1:length(cor_groups1)){
             if(i == j){
               next
+            }
+            # se la media è minore della deviazione standard 
+            if (tab_k[i,j] - sqrt((sd_groups[i]^2+sd_groups[j]^2)) < 0){
+              asym.dist <- T
+              message("Warning: The correlations of ",names(cor_groups1)[i] ,
+                      " and ", names(cor_groups1)[j], " in ", enr_sample$category[1], " are very different")
+            } else {
+              asym.dist <- F
             }
             
             ps <- path_sig(tb_k = tab_k,
@@ -160,18 +164,20 @@ pipe_for_term <- function(enr_sample,
                            tb_meancor = tab_meancor.fe,
                            significance = significance,
                            p.adj = p.adj,
-                           sd_groups = sd_groups)
+                           sd_groups = sd_groups,
+                           asym.dist = asym.dist)
             if (!is.null(ps)){
               sig_path[[n]] <- ps
-              
             } else {
               sig_path[[n]] <- as.data.frame(matrix(nrow=0,ncol = 3))
             }
-            
+            sig_path[[n]] <- sig_path[[n]][na.omit(match(intersect(names(which(N_edges_sign[[j]]>min_edge)),
+                                                                   sig_path[[n]]$Description),
+                                                         sig_path[[n]]$Description)),]
             names(sig_path)[n] <- str_c(names(cor_groups1)[i]," diviso ",names(cor_groups1)[j])
             n <- n+1
           }
-        }
+        }      
         
         tab_X <- final_table(sig_path,Graph_pathways.groups,tab_meancor.fe,N.g,names(cor_groups1))
         tab_X$tab_s <- cbind(tab_X$tab_s,
@@ -195,14 +201,16 @@ pipe_for_term <- function(enr_sample,
         
         
         time_employed <- format_time_difference(difftime(Sys.time(),start_time,units = "s"))
-        message(str_c(enr_sample$category[1],"finished in", time_employed,sep = " "))
         
+        if (length(table(enr_sample$category))==1){
+          message(str_c(enr_sample$category[1],"finished in", time_employed,sep = " "))
+        }
         return(list(sig_path = sig_path,
                     sig_path.p = sig_path.p,
                     tab_meancor = tab_meancor.fe,
                     tab_pathprot = tab_pathways_protein,
                     Graph_everypath.group = Graph_pathways.groups,
-                    tab_summary =tab_X$tab_s))
+                    tab_summary = tab_X$tab_s))
       }
     }
   }

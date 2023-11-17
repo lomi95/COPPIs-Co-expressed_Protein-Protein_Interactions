@@ -2,13 +2,24 @@ cor_fun <- function(list_condizioni,
                     test_type,
                     significance,
                     p.adj,
-                    compute_weights){
+                    compute_weights,
+                    Rcorr = NULL,
+                    threshold.n.corr = NULL,
+                    flatten = NULL
+                    ){
   # Correlazione di spearman e calcolo dei pesi per i grafi
-  cor_cond  <- lapply(list_condizioni ,COR_COMPUTE,
-                      test_type = test_type,
-                      significance = significance,
-                      p.adj = p.adj,
-                      compute_weights = compute_weights)
+  names_cond <- names(list_condizioni)
+  names(names_cond) <- names_cond
+  cor_cond  <- lapply(names_cond, function(x){
+    COR_COMPUTE(list_condizioni[[x]],
+                test_type = test_type,
+                significance = significance,
+                p.adj = p.adj,
+                compute_weights = compute_weights,
+                Rcorr = Rcorr[[x]],
+                thr_n = threshold.n.corr,
+                flatten = flatten[[x]])
+  })
   
   # ordinare le interazioni in tutti i gruppi per ordine alfabetico, in modo che 
   # l'ordine sia lo stesso per tutti i gruppi

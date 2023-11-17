@@ -2,22 +2,38 @@ COR_COMPUTE <- function(dataset,
                         test_type,
                         significance,
                         p.adj,
-                        compute_weights){
-  
-  # matrice delle correlazioni
-  Rcorr <- rcorr(as.matrix(dataset),
-                 type = test_type)
-  
+                        compute_weights,
+                        thr_n,
+                        Rcorr = NULL,
+                        flatten = NULL){
   
   
-  # flatten to read easily
-  flatten <- flattenCorrMatrix(Rcorr$r,Rcorr$P) 
   
-  flatten$cor[which(is.na(flatten$p))] <- 0
-  flatten$p[which(is.na(flatten$p))] <- 0
+  if (is.null(flatten)){
+    if(is.null(Rcorr)){
+      # matrice delle correlazioni
+      Rcorr <- rcorr(as.matrix(dataset),
+                     type = test_type)
+    }
+    if(sum(Rcorr$n<thr_n)){
+      Rcorr$r[Rcorr$n<thr_n] <- 0
+      Rcorr$P[Rcorr$n<thr_n] <- 1
+    }
+    
+    # flatten to read easily
+    flatten <- flattenCorrMatrix(Rcorr$r,Rcorr$P)
+  }
+  if (sum(is.na(flatten$p))){
+    flatten$cor[which(is.na(flatten$p))] <- 0  
+    flatten$p[which(is.na(flatten$p))] <- 1
+  }
   
   flatten.adj <- flatten[order(flatten$p),]
-  flatten.adj$p.adj <- p.adjust(flatten.adj$p,p.adj)
+  if (!is.null(p.adj)){
+    flatten.adj$p.adj <- p.adjust(flatten.adj$p,p.adj)
+  } else {
+    flatten.adj$p.adj <- flatten.adj$p
+  }
   
   flatten_norm <- flatten.adj
   ind_sig <- which(flatten_norm$p.adj < significance)
@@ -80,9 +96,7 @@ COR_COMPUTE <- function(dataset,
   flatten_norm$cor_features <- paste(flatten_norm$row, 
                                      "and", 
                                      flatten_norm$column)
-  flatten_norm$cor_features_1 <- paste(flatten_norm$column, 
-                                       "and",
-                                       flatten_norm$row)
+  
   Sign <- flatten_norm[ind_sig,] #storing significative ones
   Sign <- Sign[order(rownames(Sign)),]
   

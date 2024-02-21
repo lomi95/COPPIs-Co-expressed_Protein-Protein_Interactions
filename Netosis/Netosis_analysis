@@ -1,0 +1,21 @@
+rm(list=ls())
+source("loading_function.R")
+load("interactome_annotations_hs.RDa")
+setwd("Netosis/")
+
+Norm_IceR <- read.xlsx("DADA_IceR_imputata_normalizzata_manipolata.xlsx")
+# removing gene name = Nan
+Norm_IceR <- Norm_IceR[-which(Norm_IceR$gene.name==NaN),] ## non funziona con is.nan
+# keeping the highest value between duplicated genes
+Norm_IceR <- aggregate(Norm_IceR[], list(Norm_IceR$gene.name), FUN = max, na.rm = TRUE)
+rownames(Norm_IceR) <- Norm_IceR[,1]
+name_analysis <- "Netosis_Condizioni"
+
+categories = c("Component","Process","RCTM","WikiPathways", "CORUM")
+CoPPI_results <- pipeline(dataset = Norm_IceR,
+                          genes_id = Norm_IceR$Group.1,
+                          names_of_groups = c("dada","dctr","hd"),
+                          summary_interactome = ppi.int,
+                          categories = categories,
+                          name_analysis = "Netosis_Condizioni")
+

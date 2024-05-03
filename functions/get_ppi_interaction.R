@@ -15,7 +15,7 @@ get_ppi_interactions <- function(interactome,
   Gp.interactome <- lapply(ann.splitted,function(y){
     gp.x <- apply(y,1,function(x){
       tryCatch({
-        return(induced.subgraph(g.inter.final.hs,x$preferredNames))
+        return(induced_subgraph(g.inter.final.hs,x$preferredNames))
       }, error = function(e) {
         message("something went wrong, check your interactome")
         return(0)
@@ -46,7 +46,7 @@ get_ppi_interactions <- function(interactome,
   
   categories.interactome <- lapply(Gp.interactome.filt, function(x){
     prot.categories <- unique(unlist(lapply(x, function(y) names(V(y)))))
-    ppi.categories <- induced.subgraph(g.inter.final.hs,prot.categories)
+    ppi.categories <- induced_subgraph(g.inter.final.hs,prot.categories)
   })
   
   for (i in names(annotation.interactome)){

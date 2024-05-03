@@ -1,10 +1,11 @@
-# annotations <- prot.annotation$Component
-# correlations <- gCOR.categories$Component
+#annotations <- prot.annotation$Wikipathways
+#correlations <- gCOR.categories$Wikipathways
 CoPPI <- function(annotations, 
                   correlations,
-                  significance.coppi = significance.coppi,
-                  correction.coppi = correction.coppi,
-                  js, 
+                  perc.ned.nppi,
+                  perc.sign,
+                  significance.coppi,
+                  correction.coppi,
                   min_edges, 
                   max_edges,
                   names_of_groups){
@@ -23,24 +24,13 @@ CoPPI <- function(annotations,
   tab_protein_pathways <- t(tab_pathways_protein)
   
   flattCorr <- correlations$flattCorr
-  # if (js) {
-  #   ##sostituire zeri in correlazioni non significative 
-  #   flattCorr <- lapply(flattCorr,function(x){
-  #     x$ALL$weight[which(x$ALL$p.adj < significance)] <- 0
-  #     return(x)
-  #   })
-  #   graph_cor_notsign.cond <- lapply(flattCorr, function(x){graph_from_correlation(x$ALL ,x$ALL$weight)})
-  #   
-  #   for (i in 1:length(graph_cor_notsign.cond)){
-  #     graph_cor.groups[[i]] <- graph_cor_notsign.cond[[i]]
-  #   }
-  # }
+  
   
   gPath.All <- lapply(correlations$gCor.categ.all, function(x){
     apply(tab_protein_pathways,2,function(y){
       vids <- intersect(names(which(y==1)),names(V(x)))
       subG.0 <- subgraph(x,vids)
-      subG <- delete.vertices(subG.0, which(degree(subG.0)==0))
+      subG <- delete_vertices(subG.0, which(igraph::degree(subG.0)==0))
       if (length(E(subG)) >= min_edges && length(E(subG)) <= max_edges){
         return(subG)
       } else {
@@ -54,7 +44,7 @@ CoPPI <- function(annotations,
     apply(tab_protein_pathways,2,function(y){
       vids <- intersect(names(which(y==1)),names(V(x)))
       subG.0 <- subgraph(x,vids)
-      subG <- delete.vertices(subG.0, which(degree(subG.0)==0))
+      subG <- delete_vertices(subG.0, which(igraph::degree(subG.0)==0))
       if (length(E(subG)) >= min_edges && length(E(subG)) <= max_edges){
         return(subG)
       } else {
@@ -109,27 +99,42 @@ CoPPI <- function(annotations,
     tab_meancor <- tab_meancor[!is.na(tab_meancor[,1]),]
     
     ## si calcola la media considerando le correlazioni == 1 per tutte le ppi non osservate
-    tab_ppicor <- t(apply(tab_meancor,1,function(x){
+    tab_ppicor0 <- t(apply(tab_meancor,1,function(x){
       x[2:(length(x)-1)] <- (x[2:(length(x)-1)]*x[1]+(x[length(x)]-x[1]))/x[length(x)]
       return(x)
     }))
     
+    tab_ppicor1 <- tab_ppicor0[(tab_ppicor0[,1]/tab_ppicor0[,ncol(tab_ppicor0)])>perc.ned.nppi,]
     
+    perc.sign.edges.f <- sapply(gPath.Sign, function(x){
+      sapply(x[rownames(tab_ppicor1)], function(y) length(E(y)))
+    })/tab_ppicor1[,1]
     
-    # funzione che prende i significativi e assegna lo score
-    sig_path <- list()
-    n <-1
-    for (i in 1:(length(flattCorr)-1)){
-      for (j in (i+1):length(flattCorr)){
-        sig_path[[n]] <- pairwise_comparison(tab_k = tab_k,
-                                             g1 = i,g2 = j,
-                                             sd_groups = sd_groups,
-                                             tab_ppicor = tab_ppicor,
-                                             significance.coppi = significance.coppi,
-                                             correction.coppi = correction.coppi)
-        tryCatch({
-          names(sig_path)[n] <- str_c(names(flattCorr)[j]," vs ",names(flattCorr)[i])
-          n <- n+1
+    if (sum(rowMaxs(perc.sign.edges.f)>perc.sign)){
+      tab_ppicor        <- matrix(tab_ppicor1[rowMaxs(perc.sign.edges.f)>perc.sign,],
+                                  ncol = ncol(tab_ppicor1), 
+                                  dimnames = list(names(which(rowMaxs(perc.sign.edges.f)>perc.sign)),
+                                                  colnames(tab_ppicor1)))
+      perc.sign.edges.f <- matrix(perc.sign.edges.f[rowMaxs(perc.sign.edges.f)>perc.sign,],
+                                  ncol = ncol(perc.sign.edges.f),
+                                  dimnames = list(names(which(rowMaxs(perc.sign.edges.f)>perc.sign)),
+                                                  colnames(perc.sign.edges.f)))
+      # funzione che prende i significativi e assegna lo score
+      sig_path <- list()
+      n <-1
+      for (i in 1:(length(flattCorr)-1)){
+        for (j in (i+1):length(flattCorr)){
+          sig_path[[n]] <- pairwise_comparison(tab_k = tab_k,
+                                                g1 = i,g2 = j,
+                                                sd_groups = sd_groups,
+                                                tab_ppicor = tab_ppicor,
+                                                perc.sign.edges.f = perc.sign.edges.f,
+                                                perc.sign = perc.sign,
+                                                significance.coppi = significance.coppi,
+                                                correction.coppi = correction.coppi)
+          tryCatch({
+            names(sig_path)[n] <- str_c(names(flattCorr)[j]," vs ",names(flattCorr)[i])
+            n <- n+1
           },error = function(err){
             if (length(table(annotations$category))==1){
               message("No significant terms were found in ",
@@ -140,96 +145,117 @@ CoPPI <- function(annotations,
                       str_c(names(flattCorr)[j]," vs ",names(flattCorr)[i]))
             }
           })
+        }
       }
-    }
-    
-    ## in tabella: annotations con risultati
-    all_processes <- sort(unique(unlist(sapply(sig_path, function(x) x$description))))
-    if (length(all_processes)){
-      final_table.0 <- annotations[match(all_processes,annotations$description),]
-      final_table.1 <- cbind.data.frame(final_table.0,
-                                        tab_ppicor[final_table.0$description,])
-      final_table.1$N.ppi <- NULL
       
-      sign.edges <- sapply(gPath.Sign, function(x){
-        sapply(x[final_table.1$description], function(y) length(E(y)))
-      })
-      perc.edges <- sign.edges/final_table.1$N.edges
-      colnames(sign.edges) <- str_c("Sign_edges.",colnames(sign.edges))
-      colnames(perc.edges) <- str_c("Perc_edges.",colnames(perc.edges))
-      
-      
-      Nodes.PPI <- sapply(gPath.All[[1]][final_table.1$description], function(x){
-        length(V(x))
-      })
-      sign.nodes <- sapply(gPath.Sign, function(x){
-        sapply(x[final_table.1$description], function(y) length(V(y)))
-      })
-      perc.nodes <- sign.nodes/Nodes.PPI
-      colnames(sign.nodes) <- str_c("Sign_nodes.",colnames(sign.nodes))
-      colnames(perc.nodes) <- str_c("Perc_nodes.",colnames(perc.nodes))
-      
-      final_table.2 <- cbind.data.frame(final_table.1,
-                                        Nodes.PPI,
-                                        sign.nodes,
-                                        sign.edges,
-                                        perc.nodes,
-                                        perc.edges)
-      
-      
-      scorespvalue <- lapply(sig_path,function(x){
-        asd <- x[,c("p.adj","score")]
-      })
-      final.table <- final_table.2
-      for (i in names(scorespvalue)){
-        colnames(scorespvalue[[i]]) <- str_c(colnames(scorespvalue[[i]])," ",i)
-        scorespvalue[[i]]$description <- rownames(scorespvalue[[i]])
-        final.table <- merge(final.table,scorespvalue[[i]],
-                             by = "description", all=T)
-      }
-      final.table <- final.table[!is.na(final.table$term),]
-      graph.similarity <- lapply(sig_path, function(y){
-        if (sum(is.na(y))){
-          graph_terms <- make_empty_graph(directed = F)
-          el_gpp <- data.frame(Node_path1 = NA,
-                               Node_path2 = NA,
-                               Similarity = NA,
-                               p.adj1 = NA,
-                               score1 = NA,
-                               p.adj2 = NA,
-                               score2 = NA)
-          return(list(graph_term = graph_terms,
-                      el_graph.term = el_gpp))
+      ## in tabella: annotations con risultati
+      all_processes <- sort(unique(unlist(sapply(sig_path, function(x) x$description))))
+      if (length(all_processes)){
+        final_table.0 <- annotations[match(all_processes,annotations$description),]
+        if (nrow(tab_ppicor)>1){
+          final_table.1 <- cbind.data.frame(final_table.0,
+                                            tab_ppicor[final_table.0$description,])
         } else {
-          W <- tab_pathways_protein[y$description,]
-          if (is.null(dim(W))){
-            el_gpp <- data.frame(Node_path1 = y$description,
-                                 Node_path2 = y$description,
-                                 Similarity = 1,
-                                 p.adj1 = y$p.adj,
-                                 score1 = y$score,
-                                 p.adj2 = y$p.adj,
-                                 score2 = y$score)
-            graph_terms <- graph_from_edgelist(as.matrix(el_gpp[,1:2]))
-            vertex.attributes(graph_terms)$scores <- y$score
+          final_table.1 <- cbind.data.frame(final_table.0,tab_ppicor)
+        }
+        final_table.1$N.ppi <- NULL
+        
+        sign.edges <- sapply(gPath.Sign, function(x){
+          sapply(x[final_table.1$description], function(y) length(E(y)))
+        })
+        if (is.null(dim(sign.edges))){
+          names.s <- names(sign.edges)
+          sign.edges <- matrix(sign.edges, nrow = 1)
+          rownames(sign.edges) <- unique(sapply(str_split(names.s, "\\."), function(x) x[2]))
+          colnames(sign.edges) <- sapply(str_split(names.s, "\\."), function(x) x[1])
+        }
+        perc.edges <- sign.edges/final_table.1$N.edges
+        
+        colnames(sign.edges) <- str_c("Sign_edges.",colnames(sign.edges))
+        colnames(perc.edges) <- str_c("Perc_edges.",colnames(perc.edges))
+        
+        
+        Nodes.PPI <- sapply(gPath.All[[1]][final_table.1$description], function(x){
+          length(V(x))
+        })
+        sign.nodes <- sapply(gPath.Sign, function(x){
+          sapply(x[final_table.1$description], function(y) length(V(y)))
+        })
+        if (is.null(dim(sign.nodes))){
+          names.n <- names(sign.nodes)
+          sign.nodes <- matrix(sign.nodes, nrow = 1)
+          rownames(sign.nodes) <- unique(sapply(str_split(names.s, "\\."), function(x) x[2]))
+          colnames(sign.nodes) <- sapply(str_split(names.s, "\\."), function(x) x[1])
+        }
+        perc.nodes <- sign.nodes/Nodes.PPI
+        colnames(sign.nodes) <- str_c("Sign_nodes.",colnames(sign.nodes))
+        colnames(perc.nodes) <- str_c("Perc_nodes.",colnames(perc.nodes))
+        
+        final_table.2 <- cbind.data.frame(final_table.1,
+                                          Nodes.PPI,
+                                          sign.nodes,
+                                          sign.edges,
+                                          perc.nodes,
+                                          perc.edges)
+        
+        
+        scorespvalue <- lapply(sig_path,function(x){
+          asd <- x[,c("p.adj","score")]
+        })
+        final.table <- final_table.2
+        for (i in names(scorespvalue)){
+          colnames(scorespvalue[[i]]) <- str_c(colnames(scorespvalue[[i]])," ",i)
+          scorespvalue[[i]]$description <- rownames(scorespvalue[[i]])
+          final.table <- merge(final.table,scorespvalue[[i]],
+                               by = "description", all=T)
+        }
+        final.table <- final.table[!is.na(final.table$term),]
+        graph.similarity <- lapply(sig_path, function(y){
+          if (sum(is.na(y))){
+            graph_terms <- make_empty_graph(directed = F)
+            el_gpp <- data.frame(Node_path1 = NA,
+                                 Node_path2 = NA,
+                                 Similarity = NA,
+                                 p.adj1 = NA,
+                                 score1 = NA,
+                                 p.adj2 = NA,
+                                 score2 = NA)
             return(list(graph_term = graph_terms,
                         el_graph.term = el_gpp))
           } else {
-            W <- W[,colSums(W)!=0]
-            return(graph.terms(W,y))
+            W <- tab_pathways_protein[y$description,]
+            if (is.null(dim(W))){
+              el_gpp <- data.frame(Node_path1 = y$description,
+                                   Node_path2 = y$description,
+                                   Similarity = 1,
+                                   p.adj1 = y$p.adj,
+                                   score1 = y$score,
+                                   p.adj2 = y$p.adj,
+                                   score2 = y$score)
+              graph_terms <- graph_from_edgelist(as.matrix(el_gpp[,1:2]))
+              vertex.attributes(graph_terms)$scores <- y$score
+              return(list(graph_term = graph_terms,
+                          el_graph.term = el_gpp))
+            } else {
+              W <- W[,colSums(W)!=0]
+              return(graph.terms(W,y))
+            }
           }
-        }
-      })
-      
+        })
+        
+      } else {
+        final.table <- NULL
+        graph.similarity <- NULL
+      }
     } else {
-      final.table <- NULL
+      sig_path      <- NULL
+      final.table   <- NULL
       graph.similarity <- NULL
     }
     
     
+    
   } else {
-    gPath.All     <- NULL
-    gPath.Sign    <- NULL
     sig_path      <- NULL
     final.table   <- NULL
     graph.similarity <- NULL
